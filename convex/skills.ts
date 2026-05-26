@@ -64,6 +64,7 @@ import {
   summarizeReasonCodes,
   verdictFromCodes,
 } from "./lib/moderationReasonCodes";
+import { isOfficialPublisher, toPublicPublisherWithOfficial } from "./lib/officialPublishers";
 import {
   type HydratableSkill,
   type PublicPublisher,
@@ -2225,7 +2226,7 @@ export const getBySlug = query({
     const latestVersion = toPublicSkillVersion(latestVersionDoc);
     const generatedSkillCard = await getGeneratedSkillCardPublicFile(ctx, latestVersionDoc);
     if (latestVersion) latestVersion.generatedSkillCard = generatedSkillCard;
-    const owner = toPublicPublisher(ownerPublisher);
+    const owner = await toPublicPublisherWithOfficial(ctx, ownerPublisher);
     if (!owner) return null;
     const badges = await getSkillBadgeMap(ctx, skill._id);
 
@@ -4536,7 +4537,6 @@ export const listPublicPageV4 = query({
       Boolean(categorySlug) ||
       categoryKeywords.length > 0 ||
       excludeCategoryKeywords.length > 0;
-
     if (!hasDigestFilters) {
       const result = await getPage(ctx, {
         table: "skillSearchDigest",
@@ -4550,9 +4550,13 @@ export const listPublicPageV4 = query({
         schema,
       });
 
-      const items = result.page
-        .map((digest) => buildPublicSkillEntryFromDigest(digest))
-        .filter((item): item is PublicSkillEntry => item !== null);
+      const items = (
+        await Promise.all(
+          result.page.map((digest) =>
+            addOfficialToPublicSkillEntryOwner(ctx, buildPublicSkillEntryFromDigest(digest)),
+          ),
+        )
+      ).filter((item): item is PublicSkillEntry => item !== null);
       let nextCursor: string | null = null;
       if (result.hasMore && result.indexKeys.length > 0) {
         nextCursor = encodeIndexKey(indexName, result.indexKeys[result.indexKeys.length - 1]);
@@ -4603,7 +4607,10 @@ export const listPublicPageV4 = query({
             excludeCategoryKeywords,
           })
         ) {
-          const item = buildPublicSkillEntryFromDigest(digest);
+          const item = await addOfficialToPublicSkillEntryOwner(
+            ctx,
+            buildPublicSkillEntryFromDigest(digest),
+          );
           if (item) items.push(item);
         }
         if (items.length >= numItems) {
@@ -4924,6 +4931,19 @@ function buildPublicSkillEntryFromDigest(
     ownerHandle: ownerInfo.ownerHandle,
     owner: ownerInfo.owner,
   };
+}
+
+async function addOfficialToPublicSkillEntryOwner(
+  ctx: QueryCtx,
+  entry: PublicSkillEntry | null,
+): Promise<PublicSkillEntry | null> {
+  if (!entry?.owner) return entry;
+  const official = await isOfficialPublisher(ctx, {
+    ...entry.owner,
+    deletedAt: undefined,
+    deactivatedAt: undefined,
+  });
+  return official ? { ...entry, owner: { ...entry.owner, official: true } } : entry;
 }
 
 function buildPublicSkillApiListEntryFromDigest(digest: Doc<"skillSearchDigest">) {
