@@ -131,6 +131,10 @@ See also: [acceptable-usage.md](./acceptable-usage.md) for the marketplace polic
   before publish actions run.
 - Package publish accepts either multipart `files[]` uploads or one multipart
   `tarball` `.tgz` file part, never both in the same request.
+- Package publish multipart bytes are capped at 18MB so callers get a clear
+  ClawHub validation error before hitting Convex's 20MB HTTP action body cap.
+- Package publish must reject old multipart field aliases such as `files`,
+  `clawpack`, and `artifact`.
 - For tarball uploads, ClawHub stores the uploaded tarball, derives its artifact
   hashes and npm metadata, and derives package `files[]` from the tarball
   contents.
